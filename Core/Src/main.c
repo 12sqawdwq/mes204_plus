@@ -28,6 +28,8 @@
 #include <stdio.h>
 #include "graphics_3d.h"
 #include "video_player.h" // 视频引擎
+#include "math_effect.h"
+#include "particle_effect.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -60,6 +62,8 @@ static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 extern void LCD_Init_Extreme(void);
 extern void LCD_SendCommand(uint8_t command);
+void LCD_SetCursor(uint8_t col, uint8_t row);
+void LCD_Refresh_From_Char_Buffer(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -101,17 +105,26 @@ int main(void)
 
   LCD_Init_Extreme();
 
+  // 状态定义
   typedef enum {
-    SCENE_3D_CUBE,
-    SCENE_ASCII_VIDEO
+    SCENE_3D_CUBE,      // 几何之美
+    SCENE_PLASMA,       // 数学之美 (新增)
+    SCENE_PARTICLE_STORM, // 新增：粒子风暴
+    SCENE_ASCII_VIDEO   // 存储暴力美学
 } DemoState;
 
   DemoState current_state = SCENE_3D_CUBE;
 
-  // 3D 场景变量
-  float angle = 0.0f;
-  int cube_frame_counter = 0;
-  const int CUBE_DURATION_FRAMES = 400; // 3D 展示持续多久
+  // 共享的时间变量
+  float global_time = 0.0f;
+  // --- 为 Plasma 特效额外增加多个时间变量，榨干性能！ ---
+  #define NUM_PLASMA_TIMES 6
+  float plasma_times[NUM_PLASMA_TIMES] = {0.0f};
+  const float plasma_rates[NUM_PLASMA_TIMES] = {0.08f, 0.05f, 0.11f, -0.07f, 0.09f, -0.04f};
+
+  // 计数器
+  int scene_timer = 0;
+  const int SCENE_DURATION = 300; // 每个场景大概跑300帧
 
   /* USER CODE END 2 */
 
@@ -120,61 +133,86 @@ int main(void)
 
   while (1)
   {
+    // ==========================================
+    // 场景 1: 3D Cube
+    // ==========================================
     if (current_state == SCENE_3D_CUBE) {
-      // ===========================
-      // 场景 A: 3D 旋转立方体
-      // ===========================
+        GFX_Clear();
+        GFX_Render_Cube(global_time, global_time * 1.5f, global_time * 0.5f);
+        LCD_Refresh_Kaleidoscope();
 
-      // 1. 逻辑计算 (FPU 肌肉)
-      GFX_Clear();
-      GFX_Render_Cube(angle, angle * 1.5f, angle * 0.5f);
-      angle += 0.15f; // 旋转速度
+        global_time += 0.1f;
+        scene_timer++;
 
-      // 2. 物理刷新 (CGRAM 动态映射)
-      LCD_Refresh_Kaleidoscope();
-
-      // 3. 状态切换检查
-      cube_frame_counter++;
-      if (cube_frame_counter >= CUBE_DURATION_FRAMES) {
-        // 切换到视频模式前，最好清一下屏
-        LCD_SendCommand(0x01);
-        HAL_Delay(2); // 清屏指令慢
-
-        Video_Reset(); // 重置视频进度
-        current_state = SCENE_ASCII_VIDEO;
-      }
-
-      // 3D 模式帧率控制 (太快了看不清)
-      HAL_Delay(30);
+        if (scene_timer > SCENE_DURATION) {
+            scene_timer = 0;
+            LCD_SendCommand(0x01);
+            HAL_Delay(5);
+            current_state = SCENE_PLASMA; // 切换到 Plasma
+        }
+        HAL_Delay(30);
     }
+
+    // ==========================================
+    // 场景 2: Math Plasma (液态金属)
+    // ==========================================
+    else if (current_state == SCENE_PLASMA) {
+        float total_plasma_time = 0.0f;
+        for(int i = 0; i < NUM_PLASMA_TIMES; i++) { total_plasma_time += plasma_times[i]; }
+
+        Math_Effect_Render(global_time + total_plasma_time);
+        LCD_Refresh_Kaleidoscope();
+
+        global_time += 0.2f;
+        for(int i = 0; i < NUM_PLASMA_TIMES; i++) { plasma_times[i] += plasma_rates[i]; }
+
+        scene_timer++;
+        if (scene_timer > SCENE_DURATION) {
+            scene_timer = 0;
+            for(int i = 0; i < NUM_PLASMA_TIMES; i++) { plasma_times[i] = 0.0f; }
+            LCD_SendCommand(0x01);
+            HAL_Delay(5);
+            current_state = SCENE_PARTICLE_STORM; // 切换到粒子风暴
+        }
+        HAL_Delay(30);
+    }
+
+    // ==========================================
+    // 场景 3: 粒子风暴 (已修正)
+    // ==========================================
+    else if (current_state == SCENE_PARTICLE_STORM) {
+        GFX_Clear(); // 清空字符缓冲区
+        Particle_UpdateAndRender();
+        LCD_Refresh_From_Char_Buffer();
+
+        scene_timer++;
+        if (scene_timer > SCENE_DURATION) {
+            scene_timer = 0;
+            LCD_SendCommand(0x01);
+            HAL_Delay(5);
+
+            Video_Reset();
+            extern void Video_Init_Screen(void);
+            Video_Init_Screen();
+
+            current_state = SCENE_ASCII_VIDEO; // 切换到视频播放
+        }
+        HAL_Delay(30);
+    }
+
+    // ==========================================
+    // 场景 4: Bad Apple Video
+    // ==========================================
     else if (current_state == SCENE_ASCII_VIDEO) {
-      // ===========================
-      // 场景 B: CGRAM 视频流
-      // ===========================
+        uint8_t is_playing = Video_Update_Frame();
 
-      // 【新增】如果是刚进入该状态的第一帧，先刷背景
-      static uint8_t video_initialized = 0;
-      if (video_initialized == 0) {
-        Video_Init_Screen(); // 刷入 0123... 克隆背景
-        video_initialized = 1;
-      }
-
-      // 1. 刷新一帧 (更新 CGRAM)
-      uint8_t is_playing = Video_Update_Frame();
-
-      // 2. 状态切换检查
-      if (is_playing == 0) {
-        // 播放完毕
-        LCD_SendCommand(0x01); // 清屏
-        HAL_Delay(2);
-
-        cube_frame_counter = 0;
-        video_initialized = 0; // 重置标志位
-        current_state = SCENE_3D_CUBE;
-      }
-
-      // 帧率控制
-      HAL_Delay(40); // 调整速度
+        if (is_playing == 0) {
+            LCD_SendCommand(0x01);
+            HAL_Delay(5);
+            scene_timer = 0;
+            current_state = SCENE_3D_CUBE; // 循环回到开始
+        }
+        HAL_Delay(40);
     }
     /* USER CODE END WHILE */
 

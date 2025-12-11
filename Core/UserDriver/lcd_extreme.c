@@ -1,5 +1,6 @@
 #include "lcd_extreme.h"
 #include "main.h"
+#include "graphics.h"
 
 // ================= 硬件定义 (请再次确认与原理图一致) =================
 #define LCD_DATA_PORT GPIOC
@@ -13,6 +14,25 @@
 static void Delay_us_Rough(volatile uint32_t count) {
     volatile uint32_t k = count * 30;
     while(k--) { __NOP(); }
+}
+
+
+void LCD_SendCommand(uint8_t cmd);
+
+
+/**
+ * @brief 设置 LCD 光标位置
+ * @param col 列 (0-19)
+ * @param row 行 (0-3)
+ */
+void LCD_SetCursor(uint8_t col, uint8_t row) {
+    // 2004 LCD 行地址
+    static const uint8_t row_offsets[] = { 0x80, 0xC0, 0x94, 0xD4 };
+    if (row >= GFX_HEIGHT) {
+        row = GFX_HEIGHT - 1; // 防止越界
+    }
+    // 使用您头文件中定义的 LCD_Write_Cmd 函数
+    LCD_SendCommand(row_offsets[row] + col);
 }
 
 static void LCD_Pulse_Enable(void) {
@@ -60,4 +80,17 @@ void LCD_Init_Extreme(void) {
     LCD_SendCommand(0x01);
     HAL_Delay(5);
     LCD_SendCommand(0x06);
+}
+
+/**
+ * @brief 从 GFX_char_buffer 刷新内容到 LCD 屏幕
+ */
+void LCD_Refresh_From_Char_Buffer(void) {
+    for (int y = 0; y < GFX_HEIGHT; y++) {
+        LCD_SetCursor(0, y); // 将光标设置到每一行的开头
+        for (int x = 0; x < GFX_WIDTH; x++) {
+            // 使用您头文件中定义的 LCD_Write_Data 函数
+            LCD_SendData(GFX_char_buffer[y][x]);
+        }
+    }
 }

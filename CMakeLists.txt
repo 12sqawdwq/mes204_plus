@@ -63,6 +63,10 @@ add_executable(${CMAKE_PROJECT_NAME}
         Core/Inc/graphics_3d.h
         Core/UserDriver/video_player.c
         Core/Inc/video_player.h
+        Core/UserDriver/math_effect.c
+        Core/Inc/math_effect.h
+        Core/Inc/particle_effect.h
+        Core/UserDriver/particle_effect.c
 )
 
 # ==============================================================================
