@@ -12,7 +12,7 @@
 
 // ================= 内部辅助函数 =================
 static void Delay_us_Rough(volatile uint32_t count) {
-    volatile uint32_t k = count * 30;
+    volatile uint32_t k = count * 20;
     while(k--) { __NOP(); }
 }
 

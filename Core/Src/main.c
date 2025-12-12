@@ -30,6 +30,8 @@
 #include "video_player.h" // 视频引擎
 #include "math_effect.h"
 #include "particle_effect.h"
+#include <malloc.h>
+#include "stm32f4xx_hal.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -64,6 +66,17 @@ extern void LCD_Init_Extreme(void);
 extern void LCD_SendCommand(uint8_t command);
 void LCD_SetCursor(uint8_t col, uint8_t row);
 void LCD_Refresh_From_Char_Buffer(void);
+void print_heap_stats(void);
+// 定义在链接脚本 (.ld) 中的符号，代表静态内存（.data + .bss）的结束地址
+extern char _end;
+// 定义在链接脚本中的符号，代表 RAM 的物理结束地址（栈的起点）
+extern char _estack;
+
+// 全局变量用于观察
+volatile int g_stack_unused_now = 0;   // 当前时刻栈还剩多少没用
+volatile int g_stack_usage_now = 0;    // 当前时刻栈用了多少
+volatile int g_min_stack_left = -1; // 【核心】历史最低剩余空间（水位线）
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -133,6 +146,9 @@ int main(void)
 
   while (1)
   {
+
+    print_heap_stats();
+
     // ==========================================
     // 场景 1: 3D Cube
     // ==========================================
@@ -147,10 +163,10 @@ int main(void)
         if (scene_timer > SCENE_DURATION) {
             scene_timer = 0;
             LCD_SendCommand(0x01);
-            HAL_Delay(5);
+            HAL_Delay(2);
             current_state = SCENE_PLASMA; // 切换到 Plasma
         }
-        HAL_Delay(30);
+        HAL_Delay(2);
     }
 
     // ==========================================
@@ -174,7 +190,7 @@ int main(void)
             HAL_Delay(5);
             current_state = SCENE_PARTICLE_STORM; // 切换到粒子风暴
         }
-        HAL_Delay(30);
+        HAL_Delay(2);
     }
 
     // ==========================================
@@ -197,7 +213,7 @@ int main(void)
 
             current_state = SCENE_ASCII_VIDEO; // 切换到视频播放
         }
-        HAL_Delay(30);
+        HAL_Delay(2);
     }
 
     // ==========================================
@@ -212,7 +228,7 @@ int main(void)
             scene_timer = 0;
             current_state = SCENE_3D_CUBE; // 循环回到开始
         }
-        HAL_Delay(40);
+        HAL_Delay(5);
     }
     /* USER CODE END WHILE */
 
@@ -376,6 +392,31 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+void print_heap_stats() {
+  // 1. 获取当前的栈指针
+  uint32_t current_sp = __get_MSP();
+
+  // 2. 静态区的结束地址（也就是栈能伸展到的极限底部）
+  uint32_t static_end_ptr = (uint32_t)&_end;
+
+  // 3. 计算当前剩余的安全距离 (Free Stack)
+  // 距离撞上静态变量还有多少字节
+  int free_now = current_sp - static_end_ptr;
+
+  // 4. 计算当前栈用了多少 (Used Stack)
+  // 栈底(_estack) - 当前位置
+  int used_now = (uint32_t)&_estack - current_sp;
+
+  // === 更新全局变量 ===
+  g_stack_unused_now = free_now;
+  g_stack_usage_now = used_now;
+
+  // 【关键】记录历史最危险时刻
+  // 这样即使 GFX_Render 函数里栈用了很多，只要这里统计过一次更低的值，就会被记录下来
+  if (free_now < g_min_stack_left) {
+    g_min_stack_left = free_now;
+  }
+}
 /* USER CODE END 4 */
 
 /**
